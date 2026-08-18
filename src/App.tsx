@@ -1,5 +1,12 @@
-import React, { useState } from "react";
-import "./App.css";
+import React, { useState } from 'react';
+import './App.css';
+
+// imported components I split into components folder
+import { ParkingSpaceButton } from './components/ParkingSpaceButton';
+import { StatCard } from './components/StatCard';
+import { PricingCard } from './components/PricingCard';
+import { StatusBadge } from './components/StatusBadge';
+import { Legend } from './components/Legend';
 
 type ParkingSpace = {
   id: string;
@@ -7,6 +14,7 @@ type ParkingSpace = {
   vehicle?: string;
 };
 
+// dummy data to test UI
 const initialSpaces: ParkingSpace[] = [
   { id: "A1", occupied: true, vehicle: "CA 123-456" },
   { id: "A2", occupied: false },
@@ -19,30 +27,40 @@ const initialSpaces: ParkingSpace[] = [
   { id: "C1", occupied: true, vehicle: "CA 111-222" },
   { id: "C2", occupied: false },
   { id: "C3", occupied: false },
-  { id: "C4", occupied: true, vehicle: "CA 333-444" },
+  { id: "C4", occupied: true, vehicle: "CA 333-444" }
 ];
 
 function App() {
-  const [spaces, setSpaces] = useState(initialSpaces);
+  const [spaces, setSpaces] = useState<ParkingSpace[]>(initialSpaces);
 
+  // counting occupied spots with a loop for the top stats
   const totalSpaces = spaces.length;
-  const occupiedSpaces = spaces.filter((space) => space.occupied).length;
-  const availableSpaces = totalSpaces - occupiedSpaces;
-  const occupancyRate = Math.round((occupiedSpaces / totalSpaces) * 100);
+  let occupiedCount = 0;
 
-  const toggleSpace = (id: string) => {
-    setSpaces((currentSpaces) =>
-      currentSpaces.map((space) =>
-        space.id === id
-          ? {
-              ...space,
-              occupied: !space.occupied,
-              vehicle: !space.occupied ? "NEW VEHICLE" : undefined,
-            }
-          : space
-      )
-    );
-  };
+  for (let i = 0; i < spaces.length; i++) {
+    if (spaces[i].occupied) {
+      occupiedCount++;
+    }
+  }
+
+  const availableSpaces = totalSpaces - occupiedCount;
+  const occupancyRate = Math.round((occupiedCount / totalSpaces) * 100);
+
+  // click spot to toggle between free / occupied
+  function toggleSpace(id: string) {
+    const updated = spaces.map((s) => {
+      if (s.id === id) {
+        return {
+          ...s,
+          occupied: !s.occupied,
+          vehicle: !s.occupied ? "NEW VEHICLE" : undefined
+        };
+      }
+      return s;
+    });
+
+    setSpaces(updated);
+  }
 
   return (
     <div className="dashboard">
@@ -51,34 +69,15 @@ function App() {
           <h1>Parking Management System</h1>
           <p>Real-time parking facility overview</p>
         </div>
-
-        <div className="status">
-          <span className="status-dot"></span>
-          System Online
-        </div>
+        <StatusBadge />
       </header>
 
       <main className="dashboard-content">
         <section className="stats-grid">
-          <div className="stat-card">
-            <span>Total Spaces</span>
-            <strong>{totalSpaces}</strong>
-          </div>
-
-          <div className="stat-card">
-            <span>Occupied</span>
-            <strong>{occupiedSpaces}</strong>
-          </div>
-
-          <div className="stat-card">
-            <span>Available</span>
-            <strong>{availableSpaces}</strong>
-          </div>
-
-          <div className="stat-card">
-            <span>Occupancy</span>
-            <strong>{occupancyRate}%</strong>
-          </div>
+          <StatCard label="Total Spaces" value={totalSpaces} />
+          <StatCard label="Occupied" value={occupiedCount} />
+          <StatCard label="Available" value={availableSpaces} />
+          <StatCard label="Occupancy" value={occupancyRate + "%"} />
         </section>
 
         <section className="dashboard-section">
@@ -87,66 +86,21 @@ function App() {
               <h2>Parking Spaces</h2>
               <p>Click a space to simulate a vehicle entering or leaving.</p>
             </div>
-
-            <div className="legend">
-              <span>
-                <i className="legend-box available"></i>
-                Available
-              </span>
-
-              <span>
-                <i className="legend-box occupied"></i>
-                Occupied
-              </span>
-            </div>
+            <Legend />
           </div>
 
           <div className="parking-grid">
-            {spaces.map((space) => (
-              <button
-                key={space.id}
-                className={`parking-space ${
-                  space.occupied ? "occupied" : "available"
-                }`}
-                onClick={() => toggleSpace(space.id)}
-              >
-                <strong>{space.id}</strong>
-
-                <span>
-                  {space.occupied ? "Occupied" : "Available"}
-                </span>
-
-                {space.vehicle && (
-                  <small>{space.vehicle}</small>
-                )}
-              </button>
+            {spaces.map((sp) => (
+              <ParkingSpaceButton
+                key={sp.id}
+                space={sp}
+                onToggle={toggleSpace}
+              />
             ))}
           </div>
         </section>
 
-        <section className="dashboard-section calculator-card">
-          <div>
-            <h2>Parking Fee Calculator</h2>
-            <p>Current standard parking rate</p>
-          </div>
-
-          <div className="pricing-info">
-            <div>
-              <span>Hourly Rate</span>
-              <strong>R15</strong>
-            </div>
-
-            <div>
-              <span>Grace Period</span>
-              <strong>10 min</strong>
-            </div>
-
-            <div>
-              <span>Daily Maximum</span>
-              <strong>R100</strong>
-            </div>
-          </div>
-        </section>
+        <PricingCard />
       </main>
     </div>
   );
