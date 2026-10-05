@@ -1,37 +1,96 @@
-import { calculateParkingFee } from "../src/utils/pricingCalculator";
+import { calculateParkingFee } from "../shared/pricing";
+import { resolveRateCard } from "../shared/pricingRules";
+import {
+  formatCurrency,
+  formatDateTime,
+  formatDuration,
+} from "../shared/format";
+import { VEHICLE_TYPE_LABELS, type VehicleType } from "../shared/types";
 
-// ok so i need to make sure i rememeber how this test script feeds data into the calculator function.
-// basically im setting up a mock checkin and checkout time here (like someone parked for 2 hours and 30 mins).
-const checkInTime = new Date("2026-08-15T10:00:00");
-const checkOutTime = new Date("2026-08-15T12:30:00");
-
-// defynig the rules here so i dont get confused later: 10 mins free grace period, 
-// R15 charged for every hour, and a max cap of R100 so people dont get overcharged if they stay all day
-const gracePeriodMinutes = 10;
-const hourlyRate = 15;
-const dailyMaximum = 100;
-
-try {
-  // wrapping this in a try catch because if the dates are messed up or something throws an error, 
-  // the script wont just crash completely in the terminal. passing everything as an object property.
-  const parkingFee = calculateParkingFee({
-    checkInTime,
-    checkOutTime,
-    gracePeriodMinutes,
-    hourlyRate,
-    dailyMaximum,
-  });
-
-  // printing out everything nicely so i can visually check if the math matches what i expect in my head
-  console.log("=== Mall Parking Fee Calculator ===");
-  console.log(`Check-in time: ${checkInTime.toLocaleTimeString()}`);
-  console.log(`Check-out time: ${checkOutTime.toLocaleTimeString()}`);
-  console.log(`Grace period: ${gracePeriodMinutes} minutes`);
-  console.log(`Hourly rate: R${hourlyRate}`);
-  console.log(`Daily maximum: R${dailyMaximum}`);
-  console.log("-----------------------------------");
-  console.log(`Parking fee: R${parkingFee}`);
-} catch (error) {
-  // if something goes wrong inside the calc function, catch it here so i see the error msg instead of a blank screen
-  console.error("Error calculating parking fee.");
+interface Scenario {
+  label: string;
+  checkIn: string;
+  checkOut: string;
+  vehicleType: VehicleType;
 }
+
+const scenarios: Scenario[] = [
+  {
+    label: "Quick shop (inside grace period)",
+    checkIn: "2026-08-15T10:00:00",
+    checkOut: "2026-08-15T10:08:00",
+    vehicleType: "car",
+  },
+  {
+    label: "Lunch visit (started-hour rule)",
+    checkIn: "2026-08-15T10:00:00",
+    checkOut: "2026-08-15T12:30:00",
+    vehicleType: "car",
+  },
+  {
+    label: "Full day (daily maximum applies)",
+    checkIn: "2026-08-15T08:00:00",
+    checkOut: "2026-08-15T21:00:00",
+    vehicleType: "car",
+  },
+  {
+    label: "Overnight crossing midnight",
+    checkIn: "2026-08-15T23:00:00",
+    checkOut: "2026-08-16T01:00:00",
+    vehicleType: "car",
+  },
+  {
+    label: "Three-day event (capped per day)",
+    checkIn: "2026-08-15T10:00:00",
+    checkOut: "2026-08-18T10:00:00",
+    vehicleType: "car",
+  },
+  {
+    label: "Motorbike day rate",
+    checkIn: "2026-08-15T09:00:00",
+    checkOut: "2026-08-15T19:00:00",
+    vehicleType: "motorbike",
+  },
+];
+
+function run(scenario: Scenario): void {
+  const checkInTime = new Date(scenario.checkIn);
+  const checkOutTime = new Date(scenario.checkOut);
+  const rule = resolveRateCard(scenario.vehicleType);
+
+  try {
+    const breakdown = calculateParkingFee({
+      checkInTime,
+      checkOutTime,
+      rule,
+    });
+
+    console.log(`\n${scenario.label}`);
+    console.log(
+      `  Vehicle        ${VEHICLE_TYPE_LABELS[scenario.vehicleType]} @ ${formatCurrency(rule.hourlyRate)}/hr, cap ${formatCurrency(rule.dailyMaximum)}`,
+    );
+    console.log(`  Check-in       ${formatDateTime(checkInTime)}`);
+    console.log(`  Check-out      ${formatDateTime(checkOutTime)}`);
+    console.log(`  Duration       ${formatDuration(breakdown.totalMinutes)}`);
+
+    if (breakdown.graceApplied) {
+      console.log(
+        `  Grace period   applied (${rule.gracePeriodMinutes} min) - no charge`,
+      );
+    } else {
+      for (const line of breakdown.lines) {
+        const capNote = line.capped ? " (daily max applied)" : "";
+        console.log(
+          `    ${line.date}  ${formatDuration(line.minutes).padStart(7)}  ->  ${String(line.hoursCharged).padStart(2)} hr  =  ${formatCurrency(line.amount)}${capNote}`,
+        );
+      }
+    }
+
+    console.log(`  TOTAL          ${formatCurrency(breakdown.totalFee, breakdown.currency)}`);
+  } catch (error) {
+    console.error(`  Error: ${(error as Error).message}`);
+  }
+}
+
+console.log("=== Mall Parking Fee Calculator ===");
+scenarios.forEach(run);

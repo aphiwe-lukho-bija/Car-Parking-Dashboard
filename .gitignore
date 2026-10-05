@@ -13,6 +13,8 @@
 
 # misc
 .DS_Store
+# Real credentials stay local; .env.example is committed as the template.
+.env
 .env.local
 .env.development.local
 .env.test.local
