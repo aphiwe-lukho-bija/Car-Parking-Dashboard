@@ -87,6 +87,10 @@ export function CinematicPost({ quality, focusTarget = null }: CinematicPostProp
       <Vignette offset={0.34} darkness={0.34} />
 
       {isHigh ? <SMAA /> : null}
+    {/* The composer already resolves 4× MSAA on the high path, so an extra
+          SMAA pass there is pure cost. Lite drops MSAA and spends its one
+          cheap pass on SMAA instead, so neither mode is left aliased. */}
+      {quality === "lite" ? <SMAA /> : null}
     </EffectComposer>
   );
 }

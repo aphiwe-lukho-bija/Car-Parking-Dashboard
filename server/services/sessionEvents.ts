@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { LotStatsDto, ParkingSpaceDto } from "../../shared/types";
+import type { authoriseTow } from "./enforcementService";
 import type { checkIn, checkOut } from "./parkingService";
 
 export interface CheckInPayload {
@@ -12,9 +13,14 @@ export interface CheckOutPayload extends Awaited<ReturnType<typeof checkOut>> {
   stats: LotStatsDto;
 }
 
+export interface TowPayload extends Awaited<ReturnType<typeof authoriseTow>> {
+  stats: LotStatsDto;
+}
+
 interface SessionEventMap {
   opened: CheckInPayload;
   closed: CheckOutPayload;
+  towed: TowPayload;
 }
 
 const emitter = new EventEmitter();
@@ -34,6 +40,15 @@ export function publishSessionOpened(payload: CheckInPayload): void {
 
 export function publishSessionClosed(payload: CheckOutPayload): void {
   emitter.emit("closed", payload);
+}
+
+/**
+ * Published instead of `closed` when a vehicle is removed by enforcement, so a
+ * client can tell a driver leaving of their own accord from a tow truck
+ * hauling one off the lot — the money settles the same way, the scene does not.
+ */
+export function publishTowAuthorised(payload: TowPayload): void {
+  emitter.emit("towed", payload);
 }
 
 export function onSessionEvent<K extends keyof SessionEventMap>(

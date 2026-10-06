@@ -85,9 +85,14 @@ CREATE TABLE IF NOT EXISTS payments (
   amount      DECIMAL(10,2) NOT NULL,
   method      ENUM('card','cash') NOT NULL DEFAULT 'card',
   status      ENUM('pending','paid','failed','refunded') NOT NULL DEFAULT 'pending',
+  -- Which commercial stream the money belongs to. Parking is the default so
+  -- every existing row stays honest; 'towing' is what an impound settlement
+  -- writes, and the revenue breakdown reads it back to price up enforcement.
+  kind        ENUM('parking','overstay','towing','other') NOT NULL DEFAULT 'parking',
   reference   VARCHAR(32)  NOT NULL,
   paid_at     DATETIME     NULL,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_payments_kind (kind, paid_at),
   UNIQUE KEY uq_payments_reference (reference),
   -- A session is settled exactly once. Enforcing it here means a double
   -- checkout can never mint a second payment, whatever the calling code does.

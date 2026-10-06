@@ -37,7 +37,7 @@ export function ActivityFeed() {
           {activity.slice(0, 14).map((item) => (
             <li key={item.id} className={`feed__row feed__row--${item.kind}`}>
               <span className="feed__icon" aria-hidden="true">
-                {item.kind === "arrival" ? "↓" : "↑"}
+                {item.kind === "arrival" ? "↓" : item.kind === "tow" ? "T" : "↑"}
               </span>
               <span className="feed__body">
                 <span className="feed__plate">{formatPlate(item.numberPlate)}</span>
@@ -46,7 +46,11 @@ export function ActivityFeed() {
                 </span>
               </span>
               <span className="feed__when">
-                {item.kind === "arrival" ? "arrived" : "departed"}
+                {item.kind === "arrival"
+                  ? "arrived"
+                  : item.kind === "tow"
+                    ? "towed"
+                    : "departed"}
                 <small>{relativeTime(item.at, now)}</small>
               </span>
             </li>

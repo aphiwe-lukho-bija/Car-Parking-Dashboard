@@ -16,7 +16,11 @@ interface PaymentRow extends RowDataPacket {
   paid_at: Date;
   session_id: number;
   vehicle_type: VehicleType;
+  kind: PaymentKind;
 }
+
+/** Commercial stream a settled payment belongs to. */
+type PaymentKind = "parking" | "overstay" | "towing" | "other";
 
 interface ActiveSessionRow extends RowDataPacket {
   session_id: number;
@@ -60,7 +64,7 @@ export async function getRevenue(
 
   const [payments, active, overstayTargets] = await Promise.all([
     query<PaymentRow>(
-      `SELECT p.amount, p.paid_at, p.session_id, v.type AS vehicle_type
+      `SELECT p.amount, p.paid_at, p.session_id, p.kind, v.type AS vehicle_type
          FROM payments p
          JOIN parking_sessions s ON s.id = p.session_id
          JOIN vehicles v ON v.id = s.vehicle_id
@@ -83,6 +87,12 @@ export async function getRevenue(
 
   // ---- Cash taken today -------------------------------------------------
   let collectedToday = 0;
+  const byKind: Record<PaymentKind, { amount: number; sessions: number }> = {
+    parking: { amount: 0, sessions: 0 },
+    overstay: { amount: 0, sessions: 0 },
+    towing: { amount: 0, sessions: 0 },
+    other: { amount: 0, sessions: 0 },
+  };
   const hourly = Array.from({ length: 24 }, () => ({
     revenue: 0,
     sessions: 0,
@@ -91,6 +101,12 @@ export async function getRevenue(
   for (const payment of payments) {
     const amount = Number(payment.amount ?? 0);
     collectedToday += amount;
+
+    const stream = byKind[payment.kind ?? "parking"];
+    if (stream !== undefined) {
+      stream.amount += amount;
+      stream.sessions += 1;
+    }
 
     const bucket = hourly[payment.paid_at.getHours()];
     if (bucket !== undefined) {
@@ -159,23 +175,26 @@ export async function getRevenue(
     {
       key: "parking",
       label: "Transient parking",
-      amount: round2(collectedToday),
-      sessions: sessionsToday,
+      amount: round2(byKind.parking.amount),
+      sessions: byKind.parking.sessions,
     },
     {
-      // Enforcement streams are wired up in later phases; reporting them as
-      // zero rather than omitting them keeps the breakdown honest about what
-      // the business is not yet earning.
+      // Penalties are billed through the parking tariff rather than as a
+      // separate fine, so this stream only ever carries payments booked
+      // explicitly against it. Reported at zero rather than omitted until
+      // that happens, so the breakdown stays honest.
       key: "overstay",
       label: "Overstay penalties",
-      amount: 0,
-      sessions: 0,
+      amount: round2(byKind.overstay.amount),
+      sessions: byKind.overstay.sessions,
     },
     {
+      // Raised the moment an authorised tow settles, so the enforcement
+      // story shows money coming back the instant the truck leaves.
       key: "towing",
       label: "Towing & impound",
-      amount: 0,
-      sessions: 0,
+      amount: round2(byKind.towing.amount),
+      sessions: byKind.towing.sessions,
     },
   ];
 

@@ -52,6 +52,22 @@ export const env = {
     /** Live fee/rate refresh cadence pushed to clients. */
     pushMs: num("SIMULATION_PUSH_MS", 2000),
   },
+
+  /**
+   * The single operator account that signs into the console.
+   *
+   * A full identity provider is out of scope for a facility console, so this is
+   * one credential pair plus an HMAC secret for the issued tokens. Set a long,
+   * random AUTH_SECRET and a real password before exposing the console beyond
+   * localhost.
+   */
+  auth: {
+    username: str("ADMIN_USERNAME", "admin"),
+    password: str("ADMIN_PASSWORD", "apex-admin"),
+    tokenSecret: str("AUTH_SECRET", "apex-parking-dev-secret"),
+    /** How long a signed-in session lasts. Default is twelve hours. */
+    tokenTtlMs: num("AUTH_TOKEN_TTL_MS", 12 * 60 * 60 * 1000),
+  },
 } as const;
 
 export type Env = typeof env;

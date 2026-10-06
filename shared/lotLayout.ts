@@ -37,7 +37,7 @@ export const AISLE_WIDTH = 6.8;
 /** Width of the main drive-through aisle down the middle of the facility. */
 export const CENTRAL_AISLE_WIDTH = 9.5;
 /** Clearance of tarmac beyond the outermost row of bays. */
-export const LOT_MARGIN = 9;
+export const LOT_MARGIN = 6.5;
 
 export type LotSide = -1 | 1;
 
@@ -142,8 +142,14 @@ export const LOT_HALF_DEPTH = layout.halfDepth;
 /** West edge of the central aisle, where the boom gate stands. */
 export const GATE_X = -(LOT_HALF_WIDTH + 3);
 
-/** Staging point just outside the gate where arriving vehicles appear. */
-export const STAGING_X = GATE_X - 26;
+/**
+ * Staging point out on the access road where arriving vehicles fade up.
+ *
+ * Far enough west that a car has driven a good stretch of open road at full
+ * opacity before it reaches the gate — appearing next to the entrance would
+ * read as a spawn point rather than a street.
+ */
+export const STAGING_X = GATE_X - 52;
 
 /**
  * How far past staging a departing vehicle drives before it is removed.
@@ -151,7 +157,7 @@ export const STAGING_X = GATE_X - 26;
  * Far enough that the car leaves through the far edge of the visible scene
  * rather than disappearing while it is still on screen.
  */
-export const EXIT_X = GATE_X - 78;
+export const EXIT_X = GATE_X - 96;
 
 export const BAY_BY_NUMBER: ReadonlyMap<string, BaySlot> = new Map(
   BAYS.map((bay) => [bay.spaceNumber, bay]),

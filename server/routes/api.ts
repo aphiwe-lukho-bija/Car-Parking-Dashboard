@@ -6,6 +6,14 @@ import { pingDatabase } from "../config/db";
 import { AppError } from "../errors";
 import { getAnalytics } from "../services/analyticsService";
 import {
+  bearerToken,
+  issueToken,
+  verifyCredentials,
+  verifyToken,
+  type AuthUser,
+} from "../services/authService";
+import { authoriseTow } from "../services/enforcementService";
+import {
   checkIn,
   checkOut,
   getLotStats,
@@ -19,6 +27,7 @@ import { getDayReplay } from "../services/replayService";
 import {
   publishSessionClosed,
   publishSessionOpened,
+  publishTowAuthorised,
 } from "../services/sessionEvents";
 import { loadSnapshot } from "../services/snapshotService";
 
@@ -42,6 +51,33 @@ const pricingPatch = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "Provide at least one field to update",
   });
+
+const loginBody = z.object({
+  username: z.string().trim().min(1).max(64),
+  password: z.string().min(1).max(128),
+});
+
+type AuthedRequest = Request & { user?: AuthUser };
+
+/**
+ * Gate for everything past the sign-in endpoint.
+ *
+ * Accepts the token from either the usual `Authorization` header or a `token`
+ * query parameter, so a WebSocket handshake and a plain fetch can share the
+ * same check.
+ */
+const requireAuth: RequestHandler = (req, _res, next) => {
+  const queryToken = typeof req.query.token === "string" ? req.query.token : null;
+  const user = verifyToken(bearerToken(req.headers.authorization) ?? queryToken);
+
+  if (user === null) {
+    next(AppError.unauthorized("unauthorized", "Sign in to access the facility."));
+    return;
+  }
+
+  (req as AuthedRequest).user = user;
+  next();
+};
 
 /** Wraps an async handler so a rejected promise reaches the error middleware. */
 function asyncRoute(
@@ -72,6 +108,30 @@ export function createApiRouter(): Router {
         uptimeSeconds: Math.round(process.uptime()),
         timestamp: new Date().toISOString(),
       });
+    }),
+  );
+
+  // Public: the console cannot present a token until it has signed in.
+  router.post(
+    "/auth/login",
+    asyncRoute(async (req, res) => {
+      const { username, password } = loginBody.parse(req.body);
+
+      if (!verifyCredentials(username, password)) {
+        throw AppError.unauthorized("invalid_credentials", "Incorrect username or password.");
+      }
+
+      res.json(issueToken(username));
+    }),
+  );
+
+  // Everything below this line needs a valid token.
+  router.use(requireAuth);
+
+  router.get(
+    "/auth/me",
+    asyncRoute(async (req, res) => {
+      res.json({ user: (req as AuthedRequest).user });
     }),
   );
 
@@ -208,6 +268,30 @@ export function createApiRouter(): Router {
       publishSessionClosed({ ...result, stats });
 
       res.json({ ...result, stats });
+    }),
+  );
+
+  /**
+   * Enforcement: removes a flagged overstayer and settles what it owes.
+   *
+   * Broadcast as its own event rather than as a checkout so every connected
+   * dashboard stages the tow — the money is a settlement, the scene is not a
+   * departure.
+   */
+  router.post(
+    "/sessions/:spaceNumber/tow",
+    asyncRoute(async (req, res) => {
+      const raw = req.params.spaceNumber;
+      if (typeof raw !== "string" || raw.trim() === "") {
+        throw AppError.badRequest("invalid_space", "Bay number is required");
+      }
+
+      const result = await authoriseTow(raw.trim().toUpperCase());
+      const stats = await getLotStats(await getSpaces());
+
+      publishTowAuthorised({ ...result, stats });
+
+      res.status(201).json({ ...result, stats });
     }),
   );
 

@@ -16,6 +16,10 @@ export class AppError extends Error {
     return new AppError(400, code, message, details);
   }
 
+  static unauthorized(code: string, message: string): AppError {
+    return new AppError(401, code, message);
+  }
+
   static notFound(message: string): AppError {
     return new AppError(404, "not_found", message);
   }

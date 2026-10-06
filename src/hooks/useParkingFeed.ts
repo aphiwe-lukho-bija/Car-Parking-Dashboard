@@ -2,9 +2,11 @@ import { useEffect, useRef } from "react";
 import type { ParkingSpaceDto, ServerEvent } from "@shared/types";
 import { calculateParkingFee } from "@shared/pricing";
 import { resolveRateCard } from "@shared/pricingRules";
+import { api } from "../api/client";
 import {
   pushArrival,
   pushDepartureReceipt,
+  pushTowActivity,
   useLotStore,
 } from "../store/useLotStore";
 
@@ -17,12 +19,23 @@ import {
  */
 function socketUrl(): string {
   const configured = import.meta.env.VITE_WS_URL;
-  if (typeof configured === "string" && configured !== "") return configured;
+  let base = configured;
+  if (typeof base !== "string" || base === "") {
+    const { protocol, hostname, port } = window.location;
+    const scheme = protocol === "https:" ? "wss:" : "ws:";
+    base = `${scheme}//${hostname}:${port}/ws`;
+  }
 
-  const { protocol, hostname, port } = window.location;
-  const scheme = protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${hostname}:${port}/ws`;
+  // The live feed is behind the same sign-in as the REST API, so the socket
+  // carries the operator's token on its URL.
+  const token = useLotStore.getState().auth?.token ?? null;
+  if (token === null) return base;
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}token=${encodeURIComponent(token)}`;
 }
+
+/** Close code the hub uses when a socket presents no valid token. */
+const UNAUTHORIZED_CLOSE = 4401;
 
 const RECONNECT_BASE_MS = 700;
 const RECONNECT_MAX_MS = 8000;
@@ -57,8 +70,14 @@ export function useParkingFeed(): void {
         handleFrame(frame);
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (closedByUs.current) return;
+
+        // The server refused the token: stop reconnecting and return to login.
+        if (event.code === UNAUTHORIZED_CLOSE) {
+          useLotStore.getState().logout();
+          return;
+        }
 
         useLotStore.getState().setConnection("offline");
         // Exponential backoff with a ceiling, so a server restart reconnects
@@ -134,6 +153,61 @@ export function useParkingFeed(): void {
           store.applySnapshot(frame.payload.spaces, frame.payload.stats);
           useLotStore.setState({ analytics: frame.payload.analytics });
           break;
+
+        case "tow.authorised": {
+          store.applySnapshot(
+            upsertSpace(store.spaces, frame.payload.space),
+            frame.payload.stats,
+          );
+
+          // Hands the scene a subject: the fleet holds its mesh in the bay and
+          // the tow sequence takes it from there.
+          store.beginTow({
+            sessionId: frame.payload.session.id,
+            spaceNumber: frame.payload.session.spaceNumber,
+            numberPlate: frame.payload.session.vehicle.numberPlate,
+            vehicleType: frame.payload.session.vehicle.type,
+            at: Date.now(),
+          });
+
+          pushTowActivity(frame.payload.session);
+
+          // The stay settles like any other checkout, with the release fee
+          // itemised underneath it so the receipt explains the total.
+          const rateCard = resolveRateCard(
+            frame.payload.session.vehicle.type,
+            store.pricingRules,
+          );
+          const breakdown = calculateParkingFee({
+            checkInTime: new Date(frame.payload.session.checkInTime),
+            checkOutTime: new Date(frame.payload.session.checkOutTime ?? Date.now()),
+            rule: rateCard,
+          });
+          const accrued = Math.round(breakdown.totalFee * 100) / 100;
+          const release = Math.round((frame.payload.payment.amount - accrued) * 100) / 100;
+
+          pushDepartureReceipt(
+            frame.payload.session,
+            frame.payload.payment,
+            [
+              ...breakdown.lines.map((line) => ({
+                date: line.date,
+                hours: line.hoursCharged,
+                amount: line.amount,
+                capped: line.capped,
+              })),
+              { date: "Tow release", hours: 0, amount: release, capped: false },
+            ],
+          );
+
+          // Enforcement income landed with that payment, so the money panels
+          // refresh instead of waiting out their own polling interval.
+          void api
+            .revenue()
+            .then((revenue) => useLotStore.setState({ revenue }))
+            .catch(() => undefined);
+          break;
+        }
 
         case "error":
           console.warn("[feed]", frame.payload.code, frame.payload.message);

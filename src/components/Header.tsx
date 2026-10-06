@@ -16,8 +16,15 @@ export function Header() {
   const analytics = useLotStore((state) => state.analytics);
   const visualQuality = useLotStore((state) => state.visualQuality);
   const setVisualQuality = useLotStore((state) => state.setVisualQuality);
+  const username = useLotStore((state) => state.auth?.username ?? null);
+  const logout = useLotStore((state) => state.logout);
+  const openPaymentKiosk = useLotStore((state) => state.openPaymentKiosk);
 
   const badge = CONNECTION_COPY[connection];
+
+  const cameraMode = useLotStore((state) => state.cameraMode);
+  const setCameraMode = useLotStore((state) => state.setCameraMode);
+  const resetCamera = useLotStore((state) => state.resetCamera);
 
   return (
     <header className="topbar">
@@ -61,6 +68,37 @@ export function Header() {
       <div className="topbar__tools">
         <button
           type="button"
+          className="topbar__kiosk"
+          onClick={openPaymentKiosk}
+          title="Open the customer-facing pay station"
+        >
+          Pay station
+        </button>
+
+        <button
+          type="button"
+          className="topbar__kiosk"
+          onClick={() => setCameraMode(cameraMode === "free" ? "cinematic" : "free")}
+          title={
+            cameraMode === "free"
+              ? "Camera is free: drag to orbit, tilt and pan, scroll to zoom. Click to hand it back to the auto camera."
+              : "Auto camera is driving: it drifts and climbs on its own. Click for full manual camera control."
+          }
+        >
+          {cameraMode === "free" ? "Camera: Free" : "Camera: Auto"}
+        </button>
+
+        <button
+          type="button"
+          className="topbar__signout"
+          onClick={resetCamera}
+          title="Snap the camera back to its starting view"
+        >
+          Reset view
+        </button>
+
+        <button
+          type="button"
           className="quality-toggle"
           onClick={() => setVisualQuality(visualQuality === "high" ? "lite" : "high")}
           title={
@@ -77,6 +115,22 @@ export function Header() {
           <span className={`dot dot--${connection}`} aria-hidden="true" />
           {badge.label}
         </Badge>
+
+        {username !== null && (
+          <div className="topbar__account">
+            <span className="topbar__account-name" title={`Signed in as ${username}`}>
+              {username}
+            </span>
+            <button
+              type="button"
+              className="topbar__signout"
+              onClick={logout}
+              title="Sign out of the console"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

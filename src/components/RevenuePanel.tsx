@@ -109,8 +109,8 @@ export function RevenuePanel() {
       </ul>
       {revenue.streams.slice(1).every((stream) => stream.amount === 0) && (
         <p className="hint hint--muted">
-          Enforcement income starts at zero until overstay penalties and towing
-          go live. That gap is the point of the next phase.
+          Nothing has been towed today yet. Authorise a tow from the overstay
+          panel and the settlement lands in this stream immediately.
         </p>
       )}
 

@@ -246,6 +246,14 @@ export interface SessionClosedPayload {
   stats: LotStatsDto;
 }
 
+/**
+ * Enforcement has removed a vehicle from site.
+ *
+ * Identical to a checkout — the balance settles the same way — but published
+ * under its own type so the 3D layer can stage a tow instead of a drive-out.
+ */
+export type TowAuthorisedPayload = SessionClosedPayload;
+
 export interface TickPayload {
   stats: LotStatsDto;
   spaces: ParkingSpaceDto[];
@@ -263,6 +271,7 @@ export type ServerEvent =
   | { type: "space.changed"; payload: SpaceChangedPayload }
   | { type: "session.opened"; payload: SessionOpenedPayload }
   | { type: "session.closed"; payload: SessionClosedPayload }
+  | { type: "tow.authorised"; payload: TowAuthorisedPayload }
   | { type: "tick"; payload: TickPayload }
   | { type: "error"; payload: ErrorPayload };
 

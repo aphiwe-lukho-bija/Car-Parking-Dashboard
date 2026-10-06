@@ -16,7 +16,7 @@ import { Header } from "./components/Header";
 import { Panel } from "./components/Panel";
 import { BayGrid } from "./components/BayGrid";
 import { BayInspector } from "./components/BayInspector";
-import { ReceiptToast } from "./components/ReceiptToast";
+import { PaymentKiosk } from "./components/PaymentKiosk";
 // Three.js is a ~1MB dependency and is not needed to paint the dashboard, so
 // the lot is code-split and streams in behind the stats and activity panels.
 const ParkingLot = lazy(async () => {
@@ -25,10 +25,18 @@ const ParkingLot = lazy(async () => {
 });
 import { useParkingFeed } from "./hooks/useParkingFeed";
 import { useLotStore } from "./store/useLotStore";
+import { LoginScreen } from "./components/LoginScreen";
 
 type View = "lot" | "grid";
 
-export function App() {
+/**
+ * The console itself, mounted only for a signed-in operator.
+ *
+ * Everything that talks to the API — the hydrate call and the live feed —
+ * lives here rather than in `App`, so an unauthenticated visitor never fires a
+ * request that would come back 401.
+ */
+function Dashboard() {
   const hydrate = useLotStore((state) => state.hydrate);
   const analytics = useLotStore((state) => state.analytics);
   const stats = useLotStore((state) => state.stats);
@@ -180,8 +188,21 @@ export function App() {
           )}
         </aside>
       </main>
-
-      <ReceiptToast />
     </div>
+  );
+}
+
+/** Gate: the operator console until a session exists, the login screen until one does. */
+export function App() {
+  const auth = useLotStore((state) => state.auth);
+  const paymentKioskOpen = useLotStore((state) => state.paymentKioskOpen);
+
+  if (auth === null) return <LoginScreen />;
+
+  return (
+    <>
+      <Dashboard />
+      {paymentKioskOpen && <PaymentKiosk />}
+    </>
   );
 }

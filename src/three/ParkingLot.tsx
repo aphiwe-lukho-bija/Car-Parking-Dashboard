@@ -1,7 +1,7 @@
 import { Suspense, useRef } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, SoftShadows } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { LOT_HALF_DEPTH, LOT_HALF_WIDTH } from "@shared/lotLayout";
 import { CloudLayer, SKY, SUN_DIRECTION, SkyDome } from "./SkyDome";
@@ -10,6 +10,8 @@ import { GoldenHourEnvironment } from "./GoldenHourEnvironment";
 import { CinematicPost } from "./CinematicPost";
 import { LotScene } from "./LotScene";
 import { CarFleet } from "./CarFleet";
+import { TowSequence } from "./TowSequence";
+import { TowDirector } from "./TowDirector";
 import { useLotStore } from "../store/useLotStore";
 
 /** Distance at which the climb begins and the point it aims for. */
@@ -18,7 +20,24 @@ const ALTITUDE_MAX_DISTANCE = 470;
 const LOW_ANGLE = Math.PI / 2.45;
 const HIGH_ANGLE = 0.3;
 
+// Free-camera limits: close enough to inspect a single bay, far enough to take
+// in the whole site, and a tilt range running from almost straight down to
+// almost level with the ground.
+const FREE_MIN_DISTANCE = 5;
+const FREE_MAX_DISTANCE = 620;
+const FREE_MIN_POLAR = 0.05;
+const FREE_MAX_POLAR = Math.PI / 2 - 0.02;
+
 const smoothstep = (t: number): number => t * t * (3 - 2 * t);
+
+// Per-frame scratch objects. The rig runs every frame, so the offset, the
+// spherical decomposition and the drift axis are reused rather than allocated
+// fresh, which makes a steady frame touch no garbage-collected memory.
+const rigOffset = new THREE.Vector3();
+const rigSpherical = new THREE.Spherical();
+const rigDrift = new THREE.Vector3();
+const rigPosition = new THREE.Vector3();
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
  * Converts a scroll-wheel distance into a position and a viewing angle.
@@ -54,14 +73,38 @@ function CameraRig({ controls }: { controls: React.RefObject<OrbitControlsImpl |
   const lastInteraction = useRef(0);
   const { camera } = useThree();
   const ceiling = useRef(0);
+  const locked = useLotStore((state) => state.cameraLocked);
+  const cameraMode = useLotStore((state) => state.cameraMode);
+  const resetToken = useLotStore((state) => state.cameraResetToken);
+  const appliedReset = useRef(0);
 
   useFrame((_, delta) => {
     const controlsApi = controls.current;
     if (controlsApi === null) return;
 
+    // A scripted tow owns the camera while it runs; the rig stands fully
+    // down, so the cinematic and the operator's drag never fight for it.
+    if (locked) return;
+
+    // A reset request snaps the orbit back to the pose it started from.
+    if (resetToken !== appliedReset.current) {
+      appliedReset.current = resetToken;
+      controlsApi.reset();
+      lastInteraction.current = 0;
+      ceiling.current = 0;
+      return;
+    }
+
+    // Free mode: the operator owns rotate, tilt, pan and zoom outright. No
+    // climb and no idle drift, so the view stays exactly where it is put.
+    if (cameraMode === "free") {
+      controlsApi.update();
+      return;
+    }
+
     lastInteraction.current += delta;
 
-    const offset = camera.position.clone().sub(controlsApi.target);
+    const offset = rigOffset.copy(camera.position).sub(controlsApi.target);
     const distance = offset.length();
     if (distance <= 0) return;
 
@@ -70,7 +113,7 @@ function CameraRig({ controls }: { controls: React.RefObject<OrbitControlsImpl |
     // Convert to spherical, then push the polar angle toward the pose the
     // current distance calls for. Damping the approach keeps the climb from
     // snapping when the scroll crosses the threshold.
-    const spherical = new THREE.Spherical().setFromVector3(offset);
+    const spherical = rigSpherical.setFromVector3(offset);
 
     const previousCeiling = ceiling.current;
     const desired = Math.min(spherical.phi, pose.polar);
@@ -80,13 +123,15 @@ function CameraRig({ controls }: { controls: React.RefObject<OrbitControlsImpl |
 
     spherical.phi = ceiling.current;
     spherical.makeSafe();
-    camera.position.copy(controlsApi.target).add(new THREE.Vector3().setFromSpherical(spherical));
+    camera.position
+      .copy(controlsApi.target)
+      .add(rigPosition.setFromSpherical(spherical));
 
     // Resume the drift 6s after the operator stops dragging.
     if (lastInteraction.current > 6) {
       const angle = delta * 0.045;
-      const driftOffset = camera.position.clone().sub(controlsApi.target);
-      driftOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+      const driftOffset = rigDrift.copy(camera.position).sub(controlsApi.target);
+      driftOffset.applyAxisAngle(UP_AXIS, angle);
       camera.position.copy(controlsApi.target).add(driftOffset);
     }
 
@@ -97,19 +142,59 @@ function CameraRig({ controls }: { controls: React.RefObject<OrbitControlsImpl |
     <OrbitControls
       ref={controls}
       makeDefault
-      enablePan={false}
+      enablePan={cameraMode === "free"}
       enableDamping
-      dampingFactor={0.06}
-      minDistance={26}
-      maxDistance={ALTITUDE_MAX_DISTANCE}
-      minPolarAngle={0.06}
-      maxPolarAngle={LOW_ANGLE}
+      dampingFactor={cameraMode === "free" ? 0.09 : 0.06}
+      minDistance={cameraMode === "free" ? FREE_MIN_DISTANCE : 26}
+      maxDistance={cameraMode === "free" ? FREE_MAX_DISTANCE : ALTITUDE_MAX_DISTANCE}
+      minPolarAngle={cameraMode === "free" ? FREE_MIN_POLAR : 0.06}
+      maxPolarAngle={cameraMode === "free" ? FREE_MAX_POLAR : LOW_ANGLE}
       target={[0, 0, 0]}
+      enabled={!locked}
       onStart={() => {
         lastInteraction.current = 0;
       }}
     />
   );
+}
+
+/**
+ * Drops the render budget to `lite` when the machine cannot hold the high path.
+ *
+ * A rolling average of the frame interval is compared against a floor; the
+ * switch only fires after a sustained run of slow frames, so a single hitch or
+ * a tab regaining focus never triggers it. The operator can still pick high
+ * again from the header, and it will only downgrade once more if it stays slow.
+ */
+function AdaptiveQuality() {
+  const quality = useLotStore((state) => state.visualQuality);
+  const setVisualQuality = useLotStore((state) => state.setVisualQuality);
+  const average = useRef(0);
+  const slowFrames = useRef(0);
+
+  useFrame((_, delta) => {
+    if (quality !== "high") {
+      average.current = 0;
+      slowFrames.current = 0;
+      return;
+    }
+    // A paused or backgrounded tab produces a huge delta; treat it as neither
+    // fast nor slow rather than letting it skew the average.
+    if (delta <= 0 || delta > 0.5) return;
+
+    average.current = average.current === 0 ? delta : average.current * 0.92 + delta * 0.08;
+
+    if (1 / average.current < 32) slowFrames.current += 1;
+    else slowFrames.current = Math.max(0, slowFrames.current - 2);
+
+    if (slowFrames.current > 120) {
+      slowFrames.current = 0;
+      average.current = 0;
+      setVisualQuality("lite");
+    }
+  });
+
+  return null;
 }
 
 /** Keeps the sun's shadow frustum tight around the lot for crisp shadows. */
@@ -178,7 +263,7 @@ export function ParkingLot() {
   return (
     <Canvas
       shadows
-      dpr={[1, 1.75]}
+      dpr={[1, 1.5]}
       gl={{
         antialias: true,
         powerPreference: "high-performance",
@@ -217,15 +302,17 @@ export function ParkingLot() {
       <directionalLight position={[40, 26, 50]} intensity={0.55} color="#a8c4ee" />
 
       <Suspense fallback={null}>
-        <SoftShadows size={22} samples={9} focus={0.6} />
         <CapeTownBackdrop />
         <CloudLayer altitude={620} seed={3} opacity={0.5} drift={0.0011} tint="#fff2df" />
         <CloudLayer altitude={330} seed={11} opacity={0.72} drift={0.0021} tint="#fff8ee" />
         <LotScene />
         <CarFleet />
+        <TowSequence />
       </Suspense>
 
       <CameraRig controls={controls} />
+      <TowDirector />
+      <AdaptiveQuality />
 
       <CinematicPost quality={visualQuality} />
     </Canvas>

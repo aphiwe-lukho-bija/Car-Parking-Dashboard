@@ -9,6 +9,7 @@ import type {
 } from "../../shared/types";
 import { VEHICLE_TYPES } from "../../shared/types";
 import { getAnalytics } from "../services/analyticsService";
+import { verifyToken } from "../services/authService";
 import {
   checkIn,
   checkOut,
@@ -96,7 +97,19 @@ function errorEvent(code: string, message: string): ServerEvent {
 
 export function createRealtime(server: Server): Realtime {
   const hub = new RealtimeHub(server, {
-    onConnect: async (socket) => {
+    onConnect: async (socket, request) => {
+      // The console connects after signing in and carries its token on the
+      // socket URL. An unsigned socket is closed before it is ever sent a
+      // snapshot, so the live feed is not a back door around the login.
+      const url = new URL(request.url ?? "/ws", "http://localhost");
+      const user = verifyToken(url.searchParams.get("token"));
+
+      if (user === null) {
+        hub.send(socket, errorEvent("unauthorized", "Sign in to view the live feed."));
+        socket.close(4401, "unauthorized");
+        return;
+      }
+
       const snapshot = await loadSnapshot();
       hub.send(socket, { type: "snapshot", payload: snapshot } satisfies ServerEvent);
     },
@@ -146,6 +159,13 @@ export function createRealtime(server: Server): Realtime {
   onSessionEvent("closed", (payload) => {
     hub.broadcast({
       type: "session.closed",
+      payload,
+    } satisfies ServerEvent);
+  });
+
+  onSessionEvent("towed", (payload) => {
+    hub.broadcast({
+      type: "tow.authorised",
       payload,
     } satisfies ServerEvent);
   });

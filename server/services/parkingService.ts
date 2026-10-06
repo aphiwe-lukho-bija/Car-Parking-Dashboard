@@ -71,7 +71,7 @@ interface ActiveSessionRow extends RowDataPacket {
  * maximum is reached: a started-hour tariff means a partial hour is billed in
  * full, so anything finer grained than 60 minutes would be misleading.
  */
-function buildSession(
+export function buildSession(
   base: {
     id: number;
     spaceNumber: string;
@@ -88,9 +88,19 @@ function buildSession(
   const rateCard = resolveRateCard(base.vehicle.type, rules);
   const settledAt = base.checkOutTime ?? now;
 
+  // The column keeps whole seconds while `now` carries milliseconds, so a
+  // session opened and billed in the same second can read its check-in a
+  // fraction ahead of the clock. An open stay can never be negative, so bill
+  // it from its own start; a settled stay keeps its real check-out and the
+  // pricing guard still catches genuinely inverted timestamps.
+  const billedAt =
+    base.checkOutTime === null && settledAt.getTime() < base.checkInTime.getTime()
+      ? base.checkInTime
+      : settledAt;
+
   const breakdown = calculateParkingFee({
     checkInTime: base.checkInTime,
-    checkOutTime: settledAt,
+    checkOutTime: billedAt,
     rule: rateCard,
   });
 
@@ -111,7 +121,7 @@ function buildSession(
     finalFee: base.finalFee,
     status: base.status,
     overGrace:
-      settledAt.getTime() - base.checkInTime.getTime() >
+      billedAt.getTime() - base.checkInTime.getTime() >
       rateCard.gracePeriodMinutes * 60_000,
     nearCap: capped,
     minutesToCap: capped ? 0 : Math.max(0, hoursUnderCap - chargedHours) * 60,

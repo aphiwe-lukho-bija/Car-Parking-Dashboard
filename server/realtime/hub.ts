@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
@@ -6,7 +6,7 @@ const HEARTBEAT_MS = 30_000;
 
 export interface HubHandlers {
   /** Called once per client, before any messages are handled. */
-  onConnect(socket: WebSocket): void | Promise<void>;
+  onConnect(socket: WebSocket, request: IncomingMessage): void | Promise<void>;
   onMessage(socket: WebSocket, raw: RawData): void | Promise<void>;
   onClose(socket: WebSocket): void | Promise<void>;
 }
@@ -27,7 +27,7 @@ export class RealtimeHub {
   constructor(server: Server, private readonly handlers: HubHandlers) {
     this.wss = new WebSocketServer({ server, path: "/ws" });
 
-    this.wss.on("connection", (socket) => {
+    this.wss.on("connection", (socket, request) => {
       this.clients.add(socket);
       this.alive.set(socket, true);
 
@@ -48,7 +48,7 @@ export class RealtimeHub {
         this.clients.delete(socket);
       });
 
-      void this.handlers.onConnect(socket);
+      void this.handlers.onConnect(socket, request);
     });
 
     // Drop sockets that stopped answering so the client count stays honest.

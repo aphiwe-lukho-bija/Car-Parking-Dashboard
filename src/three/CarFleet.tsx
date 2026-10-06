@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState } from "react";
-import type { Group } from "three";
+import type { Group, Material } from "three";
+import type * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import {
   BAY_BY_NUMBER,
+  GATE_X,
   arrivalPath,
   departurePath,
   type BaySlot,
@@ -10,6 +12,7 @@ import {
 import type { VehicleType } from "@shared/types";
 import { CarModel } from "./CarModel";
 import { measurePath, samplePath, type MeasuredPath } from "./pathSampler";
+import { publishGateTraffic } from "./sceneBus";
 
 import { useLotStore } from "../store/useLotStore";
 
@@ -38,6 +41,8 @@ interface Agent {
   braking: boolean;
   arrival: MeasuredPath;
   departure: MeasuredPath;
+  /** Held while a tow owns this vehicle: hidden, and never driven out. */
+  hiddenByTow?: boolean;
 }
 
 /** The immutable slice of an agent that React needs in order to render it. */
@@ -64,6 +69,47 @@ const BRAKING = 16;
 const CORNER_SPEED = 3.2;
 /** Below this, the vehicle is treated as decelerating into its stop. */
 const BRAKE_LIGHT_THRESHOLD = 2.4;
+
+/**
+ * Metres of path over which a vehicle fades up from nothing and back down to
+ * nothing. Without it, cars pop into existence at the staging point on the
+ * access road and wink out past the exit — the two moments where the illusion
+ * is thinnest, because there is no scenery left to hide them behind.
+ */
+const FADE_DISTANCE = 16;
+
+/** Last opacity applied per mesh, so unchanged frames cost one map lookup. */
+const fadeCache = new Map<Group, number>();
+
+function setFade(mesh: Group, value: number): void {
+  const opacity = clamp01(value);
+  const previous = fadeCache.get(mesh);
+  if (previous !== undefined && Math.abs(previous - opacity) < 0.015) return;
+  fadeCache.set(mesh, opacity);
+
+  const visible = opacity > 0.02;
+  mesh.visible = visible;
+  if (!visible) return;
+
+  // A fully-opaque vehicle is left opaque. Setting `transparent` on every car
+  // forces the whole fleet into the sorted, blended pass, which costs fill rate
+  // and lets distant cars shimmer through nearer ones. Only the few vehicles
+  // actually fading at a path end pay that cost.
+  const opaque = opacity > 0.985;
+
+  mesh.traverse((child) => {
+    const surface = child as THREE.Mesh;
+    if (surface.isMesh !== true) return;
+
+    const list = Array.isArray(surface.material) ? surface.material : [surface.material];
+    for (const material of list as Material[]) {
+      const standard = material as THREE.MeshStandardMaterial;
+      standard.transparent = !opaque;
+      standard.opacity = opaque ? 1 : opacity;
+      standard.depthWrite = opaque || opacity > 0.97;
+    }
+  });
+}
 
 function buildAgent(
   spaceNumber: string,
@@ -150,6 +196,13 @@ export function CarFleet() {
     const agent = agentsRef.current.get(key);
     if (mesh === undefined || agent === undefined) return;
 
+    // A vehicle being hauled away by the tow truck is owned by the tow
+    // sequence, so the fleet keeps it out of sight rather than also driving it.
+    if (agent.hiddenByTow === true) {
+      setFade(mesh, 0);
+      return;
+    }
+
     const path = agent.phase === "leaving" ? agent.departure : agent.arrival;
     // A departing vehicle starts fully parked, so it runs the path in reverse.
     const t = agent.phase === "leaving" ? 1 - agent.distance / path.total : agent.distance / path.total;
@@ -157,6 +210,14 @@ export function CarFleet() {
 
     mesh.position.set(sample.x, 0, sample.z);
     mesh.rotation.y = sample.rotationY;
+
+    if (agent.phase === "parked") {
+      setFade(mesh, 1);
+      return;
+    }
+
+    const travelled = agent.phase === "arriving" ? agent.distance : path.total - agent.distance;
+    setFade(mesh, travelled / FADE_DISTANCE);
   }, []);
 
   /**
@@ -236,12 +297,32 @@ export function CarFleet() {
     }
 
     const retire = (key: string): void => {
+      const mesh = meshesRef.current.get(key);
+      if (mesh !== undefined) fadeCache.delete(mesh);
       agents.delete(key);
       meshesRef.current.delete(key);
     };
 
+    // A bay whose vehicle is being towed keeps its car on the lot but hands it
+    // over to the tow sequence: hidden here, animated by the truck. The agent
+    // is retired once the tow has left site, so no ghost drives out afterwards.
+    const towEvent = useLotStore.getState().towEvent;
+    // Deleting the entry currently being visited is safe while iterating a Map,
+    // so `retire` can run without materialising a copy of the whole roster.
+    for (const agent of agents.values()) {
+      const owned = towEvent !== null && agent.bay.spaceNumber === towEvent.spaceNumber;
+      if (owned && agent.phase === "parked") {
+        agent.hiddenByTow = true;
+        const mesh = meshesRef.current.get(agent.key);
+        if (mesh !== undefined) setFade(mesh, 0);
+      } else if (agent.hiddenByTow === true && !owned) {
+        retire(agent.key);
+      }
+    }
+
     // Any vehicle whose session has closed starts heading for the gate.
     for (const agent of agents.values()) {
+      if (agent.hiddenByTow === true) continue;
       if (wanted.has(agent.key) || agent.phase === "leaving") continue;
 
       agent.phase = "leaving";
@@ -279,6 +360,8 @@ export function CarFleet() {
 
     // Advance, place, and drop anything that has left the site.
     for (const [key, agent] of [...agents]) {
+      if (agent.hiddenByTow === true) continue;
+
       if (agent.phase !== "parked") {
         advance(agent, delta);
 
@@ -298,28 +381,58 @@ export function CarFleet() {
       place(key);
     }
 
-    const next: FleetEntry[] = [...agents.values()].map((agent) => ({
-      key: agent.key,
-      vehicleType: agent.vehicleType,
-      plate: agent.plate,
-      braking: agent.braking,
-      reversing: isReversing(agent),
-    }));
+    // Whoever is closest to the entrance this frame, so the boom gate knows
+    // there is something to let through before it is already alongside.
+    let approaching: { x: number; z: number } | null = null;
+    let closest = 46;
+    for (const agent of agents.values()) {
+      if (agent.phase === "parked" || agent.hiddenByTow === true) continue;
+      const mesh = meshesRef.current.get(agent.key);
+      if (mesh === undefined) continue;
+
+      const distance = Math.hypot(mesh.position.x - GATE_X, mesh.position.z);
+      if (distance < closest) {
+        closest = distance;
+        approaching = { x: mesh.position.x, z: mesh.position.z };
+      }
+    }
+    publishGateTraffic(approaching);
 
     // Only publish when membership or a light state actually changed; position
-    // and progress move in place every frame without touching React.
-    const changed =
-      next.length !== fleet.length ||
-      next.some((entry, index) => {
+    // and progress move in place every frame without touching React. The common
+    // case is compared in place so a steady frame allocates nothing for the
+    // fleet snapshot.
+    let changed = agents.size !== fleet.length;
+    if (!changed) {
+      let index = 0;
+      for (const agent of agents.values()) {
         const previous = fleet[index];
-        return (
-          entry.key !== previous?.key ||
-          entry.braking !== previous?.braking ||
-          entry.reversing !== previous?.reversing
-        );
-      });
+        if (
+          previous === undefined ||
+          agent.key !== previous.key ||
+          agent.braking !== previous.braking ||
+          isReversing(agent) !== previous.reversing
+        ) {
+          changed = true;
+          break;
+        }
+        index += 1;
+      }
+    }
 
-    if (changed) setFleet(next);
+    if (changed) {
+      const next: FleetEntry[] = [];
+      for (const agent of agents.values()) {
+        next.push({
+          key: agent.key,
+          vehicleType: agent.vehicleType,
+          plate: agent.plate,
+          braking: agent.braking,
+          reversing: isReversing(agent),
+        });
+      }
+      setFleet(next);
+    }
   });
 
   return (

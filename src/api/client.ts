@@ -14,6 +14,19 @@ import type {
 
 const BASE = "/api";
 
+/** The signed token for the current operator, or null when signed out. */
+let authToken: string | null = null;
+/** Invoked when the API rejects a request as unauthenticated. */
+let onUnauthorized: (() => void) | null = null;
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
@@ -34,9 +47,14 @@ async function request<T>(
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(authToken !== null ? { Authorization: `Bearer ${authToken}` } : {}),
       ...init?.headers,
     },
   });
+
+  if (response.status === 401) {
+    onUnauthorized?.();
+  }
 
   if (!response.ok) {
     let code = "request_failed";
@@ -69,7 +87,26 @@ export interface CheckOutPayload {
   stats: LotStatsDto;
 }
 
+export interface AuthUserDto {
+  username: string;
+  role: "admin";
+}
+
+export interface AuthSessionDto {
+  token: string;
+  user: AuthUserDto;
+  expiresAt: string;
+}
+
 export const api = {
+  login: (username: string, password: string) =>
+    request<AuthSessionDto>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
+  me: () => request<{ user: AuthUserDto }>("/auth/me"),
+
   health: () =>
     request<{ status: string; database: boolean; uptimeSeconds: number }>(
       "/health",
@@ -96,6 +133,12 @@ export const api = {
   checkOut: (spaceNumber: string, method: "card" | "cash" = "card") =>
     request<CheckOutPayload>(`/sessions/${encodeURIComponent(spaceNumber)}?method=${method}`, {
       method: "DELETE",
+    }),
+
+  /** Enforcement: removes a flagged overstayer and settles its balance. */
+  tow: (spaceNumber: string) =>
+    request<CheckOutPayload>(`/sessions/${encodeURIComponent(spaceNumber)}/tow`, {
+      method: "POST",
     }),
 
   updatePricing: (

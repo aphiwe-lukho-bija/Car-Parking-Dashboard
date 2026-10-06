@@ -8,12 +8,18 @@ import {
   GATE_X,
   LOT_HALF_DEPTH,
   LOT_HALF_WIDTH,
-  STAGING_X,
+  LOT_MARGIN,
   type BaySlot,
 } from "@shared/lotLayout";
 import { GroundLabel } from "./GroundLabel";
 import { PayPoint } from "./PayPoint";
 import { OverstayMarker } from "./OverstayMarker";
+import { AccessRoad } from "./AccessRoad";
+import { PerimeterFence } from "./PerimeterFence";
+import { LotProps } from "./LotProps";
+import { RetailCentre } from "./Mall";
+import { ShopRow } from "./ShopRow";
+import { sceneBus } from "./sceneBus";
 import { useLotStore } from "../store/useLotStore";
 
 const ASPHALT = "#4b4f57";
@@ -35,8 +41,8 @@ const HEDGE = "#2f4a34";
  * variation without a single texture download.
  */
 function Tarmac() {
-  const width = (LOT_HALF_WIDTH + 12) * 2;
-  const depth = (LOT_HALF_DEPTH + 12) * 2;
+  const width = (LOT_HALF_WIDTH + LOT_MARGIN) * 2;
+  const depth = (LOT_HALF_DEPTH + LOT_MARGIN) * 2;
 
   return (
     <group>
@@ -46,17 +52,18 @@ function Tarmac() {
       </mesh>
 
       {/* Weathering and resurfacing patches. Values sit within a few percent of
-          the base so this reads as wear rather than as painted stripes. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-18, -0.014, 6]} receiveShadow>
-        <planeGeometry args={[30, 17]} />
+          the base so this reads as wear rather than as painted stripes. Kept
+          inside the slab so they never spill onto the verge. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-10, -0.014, 6]} receiveShadow>
+        <planeGeometry args={[24, 17]} />
         <meshStandardMaterial color={PATCH_A} roughness={0.95} metalness={0.03} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[24, -0.013, -11]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[10, -0.013, -11]} receiveShadow>
         <planeGeometry args={[22, 26]} />
         <meshStandardMaterial color={PATCH_B} roughness={0.95} metalness={0.03} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[2, -0.012, 20]} receiveShadow>
-        <planeGeometry args={[38, 13]} />
+        <planeGeometry args={[30, 13]} />
         <meshStandardMaterial color={PATCH_A} roughness={0.95} metalness={0.03} />
       </mesh>
     </group>
@@ -158,7 +165,7 @@ function Aisles() {
   return (
     <group rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
       <mesh position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[(LOT_HALF_WIDTH + 10) * 2, central]} />
+        <planeGeometry args={[(LOT_HALF_WIDTH + LOT_MARGIN) * 2, central]} />
         <meshStandardMaterial color={AISLE_TINT} roughness={0.86} metalness={0.06} />
       </mesh>
     </group>
@@ -334,13 +341,48 @@ function SectionSigns() {
   );
 }
 
-/** The boom gate at the west end of the central aisle. */
+/** Full lift of a barrier arm, just shy of vertical so it reads as raised. */
+const ARM_LIFT = Math.PI / 2 - 0.12;
+/** Vehicles inside this radius of the gate get the arm lifted for them. */
+const ARM_OPEN_RADIUS = 20;
+
+/**
+ * The boom gate at the west end of the central aisle.
+ *
+ * The arms are live: the fleet publishes whoever is nearest the entrance and
+ * the arms lift for them, so traffic is seen arriving and leaving rather than
+ * simply blinking in and out beside a closed pole.
+ */
 function BoomGate() {
   const barrier = GATE_X;
+  const arms = useRef<(THREE.Group | null)[]>([null, null]);
+  const angle = useRef(0);
+
+  useFrame((_, rawDelta) => {
+    const delta = Math.min(rawDelta, 0.1);
+
+    const traffic = sceneBus.gateTraffic;
+    const carWaiting =
+      traffic !== null && Math.hypot(traffic.x - barrier, traffic.z) < ARM_OPEN_RADIUS;
+    const towPassing =
+      sceneBus.tow.active && Math.abs(sceneBus.tow.x - barrier) < ARM_OPEN_RADIUS + 6;
+
+    const target = carWaiting || towPassing ? ARM_LIFT : 0;
+    angle.current += (target - angle.current) * Math.min(1, delta * 3.2);
+
+    arms.current.forEach((arm, index) => {
+      if (arm === null) return;
+      // The two arms hinge on opposite sides and mirror each other.
+      const side = index === 0 ? -1 : 1;
+      arm.rotation.x = -side * angle.current;
+    });
+  });
+
+  const armLength = CENTRAL_AISLE_WIDTH / 2 + 0.4;
 
   return (
     <group position={[barrier, 0, 0]}>
-      {[-1, 1].map((side) => (
+      {[-1, 1].map((side, index) => (
         <group key={side} position={[0, 0, side * (CENTRAL_AISLE_WIDTH / 2 + 0.4)]}>
           <mesh castShadow position={[0, 0.75, 0]}>
             <boxGeometry args={[0.5, 1.5, 0.5]} />
@@ -356,6 +398,28 @@ function BoomGate() {
               emissiveIntensity={0.6}
             />
           </mesh>
+
+          {/* Arm, hinged at the top of the post. */}
+          <group
+            ref={(node) => {
+              arms.current[index] = node;
+            }}
+            position={[0, 1.62, 0]}
+          >
+            <mesh castShadow position={[0, 0, (-side * armLength) / 2]}>
+              <boxGeometry args={[0.14, 0.14, armLength]} />
+              <meshStandardMaterial color="#eceff3" roughness={0.6} />
+            </mesh>
+            {[0, 1, 2, 3].map((segment) => (
+              <mesh
+                key={segment}
+                position={[0, 0, -side * ((segment + 0.5) * armLength) / 4]}
+              >
+                <boxGeometry args={[0.16, 0.16, armLength / 8]} />
+                <meshStandardMaterial color="#d63b2f" roughness={0.55} />
+              </mesh>
+            ))}
+          </group>
         </group>
       ))}
     </group>
@@ -394,33 +458,17 @@ function LampPosts() {
   );
 }
 
-/** Faint perimeter hedge so the lot has a boundary. */
-function Perimeter() {
-  const width = (LOT_HALF_WIDTH + 10) * 2;
-  const z = LOT_HALF_DEPTH + 7;
-
-  return (
-    <group>
-      {[z, -z].map((offset) => (
-        <mesh key={`hedge-${offset}`} position={[0, 0.5, offset]} castShadow>
-          <boxGeometry args={[width, 1.1, 1.4]} />
-          <meshStandardMaterial color={HEDGE} roughness={1} metalness={0} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 export function LotScene() {
   const selectBay = useLotStore((state) => state.selectBay);
 
   return (
     <group onClick={() => selectBay(null)}>
+      <AccessRoad />
       <Tarmac />
       <Aisles />
       <RoadMarkings />
       <KerbedIslands />
-      <Perimeter />
+      <PerimeterFence />
       {BAYS.map((bay) => (
         <BayZone key={bay.spaceNumber} bay={bay} />
       ))}
@@ -429,12 +477,40 @@ export function LotScene() {
       <BoomGate />
       <PayPoint />
       <LampPosts />
-
-      {/* Entry throat beyond the gate, where arriving vehicles appear */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[(GATE_X + STAGING_X) / 2, 0.004, 0]}>
-        <planeGeometry args={[Math.abs(GATE_X - STAGING_X), CENTRAL_AISLE_WIDTH]} />
-        <meshStandardMaterial color="#43474e" roughness={0.94} />
-      </mesh>
+      <LotProps />
+      {/* Roadside mall on the verge, opposite the Zone A signage. */}
+      <RetailCentre position={[-37, 0, -13]} width={22} depth={14} name="APEX MALL" forecourt={5.8} />
+      {/* Shops filling the tarmac pocket inside the yard, just north of Zone A. */}
+      <RetailCentre
+        position={[-16.5, 0, -23]}
+        width={12}
+        depth={12}
+        name="APEX SHOPS"
+        forecourt={2.5}
+      />
+      {/* Shops packed alongside APEX SHOPS, filling the north margin wall to
+          wall: one run behind the motorbike row, another east of it, then a
+          third turning down the east fence. */}
+      <ShopRow position={[0, 0, -26.3]} start={-10.4} end={9.2} depth={10} count={3} name="SHOP" />
+      <ShopRow
+        position={[0, 0, -23.2]}
+        start={9.5}
+        end={23.4}
+        depth={13}
+        count={2}
+        name="SHOP"
+        startIndex={4}
+      />
+      <ShopRow
+        position={[17.8, 0, 0]}
+        rotationY={-Math.PI / 2}
+        start={-19}
+        end={22}
+        depth={5.8}
+        count={5}
+        name="SHOP"
+        startIndex={6}
+      />
     </group>
   );
 }

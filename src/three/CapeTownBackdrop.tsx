@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { LOT_HALF_DEPTH, LOT_HALF_WIDTH } from "@shared/lotLayout";
 
@@ -116,6 +116,41 @@ export function CapeTownBackdrop() {
     });
   }, []);
 
+  const blocksRef = useRef<THREE.InstancedMesh>(null);
+  const blockGeometry = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
+  const blockMaterial = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: "#5a5f6b", roughness: 0.95, metalness: 0.05 }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      blockGeometry.dispose();
+      blockMaterial.dispose();
+    },
+    [blockGeometry, blockMaterial],
+  );
+
+  useEffect(() => {
+    const mesh = blocksRef.current;
+    if (mesh === null) return;
+
+    // One instanced draw for the whole skyline instead of a mesh, geometry and
+    // material per block. The city never moves, so the matrices are written once.
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+
+    skyline.forEach((block, index) => {
+      position.set(block.x, block.height / 2, 0);
+      scale.set(block.width, block.height, 10);
+      matrix.compose(position, rotation, scale);
+      mesh.setMatrixAt(index, matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [skyline]);
+
   return (
     <group>
       {/* Far ridges: hazier and cooler the further back they sit. */}
@@ -162,15 +197,15 @@ export function CapeTownBackdrop() {
         colour="#3f4a5c"
       />
 
-      {/* City blocks sitting on the plain in front of the mountain. */}
-      <group position={[0, 0, -720]}>
-        {skyline.map((block) => (
-          <mesh key={block.x} position={[block.x, block.height / 2, 0]}>
-            <boxGeometry args={[block.width, block.height, 10]} />
-            <meshStandardMaterial color="#5a5f6b" roughness={0.95} metalness={0.05} />
-          </mesh>
-        ))}
-      </group>
+      {/* City blocks sitting on the plain in front of the mountain. The whole
+          skyline is one instanced mesh, so the horizon costs a single draw
+          call instead of sixty-four. */}
+      <instancedMesh
+        ref={blocksRef}
+        position={[0, 0, -720]}
+        args={[blockGeometry, blockMaterial, skyline.length]}
+        frustumCulled={false}
+      />
 
       {/* Distant flats/waterfront edge, catching the low sun. */}
       <mesh position={[0, 1.5, -LOT_HALF_DEPTH - 200]} rotation={[-Math.PI / 2, 0, 0]}>
