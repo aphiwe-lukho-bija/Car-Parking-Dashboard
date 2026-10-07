@@ -19,6 +19,8 @@ import { PerimeterFence } from "./PerimeterFence";
 import { LotProps } from "./LotProps";
 import { RetailCentre } from "./Mall";
 import { ShopRow } from "./ShopRow";
+import { CityDistrict } from "./city/CityDistrict";
+import { LotLife } from "./LotLife";
 import { sceneBus } from "./sceneBus";
 import { useLotStore } from "../store/useLotStore";
 
@@ -463,7 +465,11 @@ export function LotScene() {
 
   return (
     <group onClick={() => selectBay(null)}>
+      {/* The streets and blocks wrapping the lot on every side. */}
+      <CityDistrict />
       <AccessRoad />
+      {/* People moving and lingering inside the fence. */}
+      <LotLife />
       <Tarmac />
       <Aisles />
       <RoadMarkings />

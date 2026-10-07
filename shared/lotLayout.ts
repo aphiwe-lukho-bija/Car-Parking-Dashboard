@@ -145,19 +145,20 @@ export const GATE_X = -(LOT_HALF_WIDTH + 3);
 /**
  * Staging point out on the access road where arriving vehicles fade up.
  *
- * Far enough west that a car has driven a good stretch of open road at full
- * opacity before it reaches the gate — appearing next to the entrance would
- * read as a spawn point rather than a street.
+ * Pushed deep into the corridor between the west blocks, so the fade happens
+ * where the buildings line the road on both sides instead of out in the open:
+ * from the lot the car arrives down a canyon, not out of thin air.
  */
-export const STAGING_X = GATE_X - 52;
+export const STAGING_X = GATE_X - 80;
 
 /**
  * How far past staging a departing vehicle drives before it is removed.
  *
- * Far enough that the car leaves through the far edge of the visible scene
- * rather than disappearing while it is still on screen.
+ * Far enough that the car leaves through the far edge of the visible scene —
+ * past the west buildings, but still on the tarmac of the access road — rather
+ * than disappearing while it is still in clear view.
  */
-export const EXIT_X = GATE_X - 96;
+export const EXIT_X = GATE_X - 126;
 
 export const BAY_BY_NUMBER: ReadonlyMap<string, BaySlot> = new Map(
   BAYS.map((bay) => [bay.spaceNumber, bay]),

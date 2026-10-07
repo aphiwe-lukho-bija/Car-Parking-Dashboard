@@ -13,8 +13,6 @@ import { RoadSign } from "./RoadSign";
  */
 
 const ROOF = "#39414b";
-const WALL = "#8d8a80";
-const WALL_DARK = "#6f6d66";
 const GLASS = "#26333f";
 const STEEL = "#5c636e";
 
@@ -156,49 +154,6 @@ function DiscSign({
   );
 }
 
-/** A neighbouring building: bulk, a parapet, and bands of glazing. */
-function Building({
-  position,
-  size,
-  rotationY = 0,
-  wall,
-  glazing = true,
-}: {
-  position: [number, number, number];
-  size: [number, number, number];
-  rotationY?: number;
-  wall: string;
-  glazing?: boolean;
-}) {
-  const [width, height, depth] = size;
-  const bands = Math.max(1, Math.floor(height / 3.2));
-
-  return (
-    <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh castShadow receiveShadow position={[0, height / 2, 0]}>
-        <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial color={wall} roughness={0.85} metalness={0.05} />
-      </mesh>
-      <mesh castShadow position={[0, height + 0.28, 0]}>
-        <boxGeometry args={[width + 0.5, 0.56, depth + 0.5]} />
-        <meshStandardMaterial color={ROOF} roughness={0.8} metalness={0.1} />
-      </mesh>
-
-      {glazing
-        ? Array.from({ length: bands }, (_, index) => (
-            <mesh
-              key={index}
-              position={[0, 2 + index * 3.2, depth / 2 + 0.02]}
-            >
-              <boxGeometry args={[width * 0.86, 1.1, 0.08]} />
-              <meshStandardMaterial color={GLASS} roughness={0.15} metalness={0.55} />
-            </mesh>
-          ))
-        : null}
-    </group>
-  );
-}
-
 export function LotProps() {
   const edge = LOT_HALF_WIDTH + LOT_MARGIN;
 
@@ -234,12 +189,9 @@ export function LotProps() {
         boardColour="#1c2b4a"
       />
 
-      {/* The neighbours. Sized and placed to sit beyond the fence, well inside
-          the backdrop, so the lot reads as part of a town rather than a field. */}
-      <Building position={[-58, 0, 62]} size={[78, 9.5, 26]} wall={WALL_DARK} glazing={false} />
-      <Building position={[56, 0, -64]} size={[44, 18, 24]} wall={WALL} />
-      <Building position={[76, 0, 18]} size={[26, 9, 22]} wall={WALL_DARK} glazing={false} />
-      <Building position={[-110, 0, 46]} size={[34, 7.5, 20]} wall={WALL} />
+      {/* The neighbours. Every direction — north, east, south and west — is
+          taken over by the city district (src/three/city), which now wraps the
+          lot on all four sides; nothing is left to place here. */}
     </group>
   );
 }
