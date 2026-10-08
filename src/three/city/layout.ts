@@ -40,8 +40,23 @@ export const SA = {
   paveS: 61.5,
 };
 
-/** Service lane along the back of the shops, for stalls, bins and deliveries. */
-export const LANE = { x0: -50, x1: 29.5, zN: -46, zS: -41.5 };
+/**
+ * Rear service road along the back of the shops. It runs west from the East
+ * Avenue junction (31.5) to a kerbed dead end behind the mall's west blocks,
+ * so `x1` carries it onto the avenue pavement before the mouth opens.
+ */
+export const LANE = { x0: -50, x1: 31.5, zN: -46, zS: -41.5 };
+
+/**
+ * The paved footway on the lane's south side. Behind the shops it opens into
+ * a wide promenade running up to the boundary fence; west of the mall's
+ * filler (see LANE_BAY) it stays narrow, because the filler's north wall is
+ * what stops it there.
+ */
+export const LANE_FOOT = { z0: LANE.zS, z1: LANE.zS + 4.05 };
+
+/** The narrow market bay at the lane's dead end, in front of the filler. */
+export const LANE_BAY = { x1: -25, z1: LANE.zS + 2.1 };
 
 export const FLOOR_H = 3.4;
 
@@ -151,19 +166,27 @@ const RUNS: RunSpec[] = [
   { axis: "x", from: -140, to: 110, front: -61.5, depth: 13, floorsMin: 2, floorsMax: 4, seed: 11, storefront: true },
   { axis: "x", from: -140, to: 110, front: -77.5, depth: 17, floorsMin: 5, floorsMax: 8, seed: 22, gap: 0.12, boards: [4, 11] },
   { axis: "x", from: -138, to: 108, front: -98.5, depth: 23, floorsMin: 7, floorsMax: 15, seed: 33, gap: 0.34, boards: [3] },
-  // East of the avenue, behind shops 06-10.
-  { axis: "z", from: -45.5, to: 50, front: 45.5, depth: 13, floorsMin: 2, floorsMax: 4, seed: 44, storefront: true },
-  { axis: "z", from: -45.5, to: 55, front: 61.5, depth: 17, floorsMin: 5, floorsMax: 8, seed: 55, gap: 0.12, boards: [2, 6] },
-  { axis: "z", from: -45.5, to: 60, front: 82, depth: 23, floorsMin: 7, floorsMax: 14, seed: 66, gap: 0.34 },
+  // East of the avenue, behind shops 06-10. Every run stops at the south
+  // avenue's pavement, so no terrace is allowed to walk across the carriageway.
+  { axis: "z", from: -45.5, to: 46, front: 45.5, depth: 13, floorsMin: 2, floorsMax: 4, seed: 44, storefront: true },
+  { axis: "z", from: -45.5, to: 46, front: 61.5, depth: 17, floorsMin: 5, floorsMax: 8, seed: 55, gap: 0.12, boards: [2, 6] },
+  { axis: "z", from: -45.5, to: 46, front: 82, depth: 23, floorsMin: 7, floorsMax: 14, seed: 66, gap: 0.34 },
   // South of the avenue: the terraces that close the view past Zone D.
   { axis: "x", from: -140, to: 110, front: 61.5, depth: 13, floorsMin: 2, floorsMax: 4, seed: 77, storefront: true, dir: 1 },
   { axis: "x", from: -140, to: 110, front: 77.5, depth: 17, floorsMin: 5, floorsMax: 8, seed: 88, gap: 0.12, boards: [4, 9], dir: 1 },
   { axis: "x", from: -138, to: 108, front: 98.5, depth: 23, floorsMin: 7, floorsMax: 16, seed: 99, gap: 0.34, dir: 1 },
-  // West of the access road, one on each side of the corridor.
+  // West of the access road, one on each side of the corridor. The southern
+  // run has to declare its direction: the axis-x default grows toward -Z, which
+  // walked the whole terrace straight across the carriageway. With dir 1 it
+  // stands outside the west fence, alongside Zones B and D, shopfronts to the
+  // road and a metre of verge behind it for the avenue's street trees.
   { axis: "x", from: -165, to: -51, front: -12, depth: 34, floorsMin: 4, floorsMax: 13, seed: 111, storefront: true, gap: 0.08 },
-  { axis: "x", from: -165, to: -26, front: 13, depth: 33, floorsMin: 4, floorsMax: 14, seed: 133, storefront: true, gap: 0.08 },
-  // Fillers that plug the skyline behind the mall and at the road's end.
-  { axis: "x", from: -50, to: -25, front: -22, depth: 24, floorsMin: 5, floorsMax: 11, seed: 122, gap: 0.06 },
+  { axis: "x", from: -165, to: -26, front: 13, depth: 32, floorsMin: 4, floorsMax: 14, seed: 133, storefront: true, gap: 0.08, dir: 1 },
+  // Fillers that plug the skyline behind the mall and at the road's end. The
+  // mall filler sits behind the mall's rear wall with its north face pulled
+  // short of the service road, so a paved market bay runs along the back of
+  // it and the delivery road stays open instead of being built over.
+  { axis: "x", from: -50, to: -25, front: -28, depth: 11, floorsMin: 5, floorsMax: 11, seed: 122, gap: 0.06 },
   { axis: "z", from: -14, to: 14, front: -172, depth: 16, floorsMin: 6, floorsMax: 12, seed: 144, dir: -1 },
 ];
 

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import type { VehicleType } from "@shared/types";
 import { CarModel } from "../CarModel";
-import { EA, LANE, NA, SA } from "./layout";
+import { EA, LANE, LANE_FOOT, NA, SA } from "./layout";
 import { Instances } from "./Instances";
 
 /**
@@ -18,6 +18,13 @@ import { Instances } from "./Instances";
  */
 
 const PAVEMENT_Y = 0.17;
+
+/** Bands across the rear street: shoppers crowd the stall fronts in the west
+ *  bay, while the promenade keeps a walking lane at its middle with strollers
+ *  drifting along the fence side. */
+const MARKET_CROWD_Z = LANE.zS + 2.0;
+const PROMENADE_WALK_Z = LANE.zS + 1.9;
+const PROMENADE_STROLL_Z = LANE_FOOT.z1 - 1.3;
 
 const PARKED_BODY = ["#c8ccd2", "#2f3b4a", "#8f2f2f", "#d9d4c8", "#2f6d5b", "#c9a44a", "#4a4f57"];
 
@@ -206,6 +213,19 @@ const TRAFFIC: TrafficSpec[] = [
     vehicleType: "suv",
     offset: 20,
   },
+  // The rear service road: a delivery lorry working the lane behind the
+  // shops, wrapping back out of the junction mouth each lap.
+  {
+    axis: "x",
+    lane: (LANE.zN + LANE.zS) / 2,
+    from: LANE.x0 + 6,
+    to: LANE.x1 - 2.5,
+    speed: 7.5,
+    rotY: Math.PI / 2,
+    plate: "CA 663-118",
+    vehicleType: "truck",
+    offset: 55,
+  },
   // South avenue, left-hand traffic: eastbound hugs its north kerb.
   {
     axis: "x",
@@ -323,9 +343,13 @@ function StaticCrowd(): ReactElement {
     for (const z of [-34, -14, 8, 44]) {
       add(EA.paveW + 0.7 - random() * 0.5, z, -Math.PI / 2);
     }
-    // A couple of people at the stalls in the rear lane.
-    for (const x of [-40, -17, 6, 18]) {
-      add(x, LANE.zN + 0.8, 0);
+    // Shoppers browsing the stalls in the west market bay, and people
+    // strolling the promenade behind the shops on the fence side of it.
+    for (const x of [-40, -33.5, -27]) {
+      add(x, MARKET_CROWD_Z, Math.PI);
+    }
+    for (const x of [-18, 8, 24]) {
+      add(x, PROMENADE_STROLL_Z, 0);
     }
     // South avenue, both pavements.
     for (const x of [-128, -104, -72, -48, -20, 8, 24, 56, 88]) {
@@ -581,6 +605,18 @@ const WALKERS: WalkSpec[] = [
     offset: 110,
     coat: pick(COATS, 3),
     skin: pick(SKINS, 2),
+  },
+  // The rear service road's promenade, walked end to end behind the shops.
+  {
+    axis: "x",
+    lane: PROMENADE_WALK_Z,
+    from: -22,
+    to: 28,
+    speed: 1.25,
+    rotY: Math.PI / 2,
+    offset: 14,
+    coat: pick(COATS, 4),
+    skin: pick(SKINS, 1),
   },
   // Children running along the pavements, quicker and shorter than the adults.
   {

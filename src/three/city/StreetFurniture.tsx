@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactElement } from "react";
 import * as THREE from "three";
-import { EA, LANE, NA, SA } from "./layout";
+import { EA, LANE, LANE_BAY, LANE_FOOT, NA, SA } from "./layout";
 import { Instances } from "./Instances";
 
 /**
@@ -25,6 +25,15 @@ const EA_LIGHT_Z = [-35, 5, 45];
 const EA_WEST_LIGHT_Z = [-30, 30];
 const SA_LIGHT_X = [-115, -55, 5, 65];
 const SA_SOUTH_LIGHT_X = [-90, -30, 30, 90];
+
+/** Bands across the rear street, so each kind of furniture keeps its own: the
+ *  market row fills the narrow west bay, while the promenade behind the shops
+ *  takes lamps at the kerb, bins and seats beside them, and a tree line
+ *  against the fence. */
+const LANE_MARKET_Z = (LANE.zS + LANE_BAY.z1) / 2;
+const LANE_LIGHT_Z = LANE.zS + 0.6;
+const LANE_EDGE_Z = LANE.zS + 1.1;
+const LANE_TREE_Z = LANE_FOOT.z1 - 0.6;
 
 function clearOf(x: number, lights: number[], margin = 7): boolean {
   return lights.every((light) => Math.abs(light - x) > margin);
@@ -90,6 +99,10 @@ function StreetTrees(): ReactElement {
     for (const x of [-55, -81, -107, -133, -159]) {
       list.push({ x, z: -9.9, scale: 0.85 + random() * 0.3 });
       list.push({ x, z: 9.9, scale: 0.9 + random() * 0.35 });
+    }
+    // The promenade along the rear service road, a row against the fence.
+    for (const x of [-21, -12, -3, 6, 15, 24]) {
+      list.push({ x, z: LANE_TREE_Z, scale: 0.9 + random() * 0.35 });
     }
     return list;
   }, []);
@@ -376,6 +389,10 @@ export function StreetFurniture(): ReactElement {
     { x: EA.roadE + 1, z: 45, rotY: -Math.PI / 2 },
     { x: EA.paveW + 0.8, z: -30, rotY: Math.PI / 2 },
     { x: EA.paveW + 0.8, z: 30, rotY: Math.PI / 2 },
+    // Along the rear service road, arms reaching north over the carriageway.
+    { x: -10, z: LANE_LIGHT_Z, rotY: Math.PI },
+    { x: 4, z: LANE_LIGHT_Z, rotY: Math.PI },
+    { x: 18, z: LANE_LIGHT_Z, rotY: Math.PI },
     // Along the south avenue, arms reaching over the road from each side.
     { x: -115, z: SA.roadN - 1, rotY: 0 },
     { x: -55, z: SA.roadN - 1, rotY: 0 },
@@ -402,6 +419,10 @@ export function StreetFurniture(): ReactElement {
     { x: 65, z: SA.paveS - 0.7 },
     { x: -120, z: 9.9 },
     { x: -68, z: -9.9 },
+    // Litter bins along the rear service road's promenade, at the kerb side.
+    { x: -20, z: LANE_EDGE_Z },
+    { x: 0, z: LANE_EDGE_Z },
+    { x: 26, z: LANE_EDGE_Z },
   ];
 
   return (
@@ -419,6 +440,7 @@ export function StreetFurniture(): ReactElement {
       <Bench x={-60} z={SA.roadN - 1.1} rotY={0} />
       <Bench x={50} z={SA.roadN - 1.1} rotY={0} />
       <Bench x={20} z={SA.paveS - 1.1} rotY={Math.PI} />
+      <Bench x={6} z={LANE_EDGE_Z} rotY={Math.PI} />
 
       {bins.map((bin) => (
         <Bin key={`bin-${bin.x}-${bin.z}`} {...bin} />
@@ -431,18 +453,19 @@ export function StreetFurniture(): ReactElement {
 
       <BusShelter x={-85} z={NA.roadN - 1.3} />
 
-      {/* Stalls and skips line the working lane behind the shop terraces. */}
-      {STALL_COLOURS.map((colour, index) => (
+      {/* A tidy market row and its bin bay filling the narrow paved bay at
+          the road's dead end, clear of the carriageway so the service road
+          stays open. */}
+      {[-41.5, -38, -34.5, -31, -27.5].map((x, index) => (
         <Stall
-          key={colour}
-          x={-44 + index * 11.5}
-          z={LANE.zS - 1.4}
-          colour={colour}
+          key={x}
+          x={x}
+          z={LANE_MARKET_Z}
+          colour={STALL_COLOURS[index] ?? "#c47f2a"}
         />
       ))}
-      <Dumpster x={-48} z={LANE.zN + 1.4} rotY={0} />
-      <Dumpster x={-2} z={LANE.zN + 1.4} rotY={0} />
-      <Dumpster x={26} z={LANE.zN + 1.4} rotY={Math.PI} />
+      <Dumpster x={-48} z={LANE_MARKET_Z} rotY={Math.PI} />
+      <Dumpster x={-45.2} z={LANE_MARKET_Z} rotY={Math.PI} />
     </group>
   );
 }

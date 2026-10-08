@@ -147,10 +147,7 @@ function Tree({ x, z, scale = 1 }: { x: number; z: number; scale?: number }) {
 }
 
 const TREES: { x: number; z: number; scale: number }[] = [
-  { x: -16, z: -HALF_Z - 2.6, scale: 1.1 },
-  { x: 4, z: -HALF_Z - 2.2, scale: 0.95 },
-  { x: 22, z: -HALF_Z - 2.8, scale: 1.15 },
-  { x: -26, z: -HALF_Z - 3.4, scale: 0.9 },
+  { x: -HALF_X, z: -HALF_Z - 0.4, scale: 1.0 },
   { x: -16, z: HALF_Z + 2.6, scale: 1.05 },
   { x: 6, z: HALF_Z + 2.4, scale: 1.2 },
   { x: 24, z: HALF_Z + 2.9, scale: 0.95 },
@@ -172,17 +169,13 @@ export function PerimeterFence() {
     <group>
       <Fence />
 
-      {/* Hedges just outside the fence, softening the boundary line. */}
-      {[-1, 1].map((side) => (
-        <mesh
-          key={`hedge-${side}`}
-          position={[0, 0.5, side * (HALF_Z + 1.5)]}
-          castShadow
-        >
-          <boxGeometry args={[HALF_X * 2, 1.1, 1.3]} />
-          <meshStandardMaterial color={HEDGE} roughness={1} metalness={0} />
-        </mesh>
-      ))}
+      {/* A hedge softens the south boundary. The north side is the shops'
+          rear street, so its fence stands clear for the promenade to run up
+          to and the street stays open to view. */}
+      <mesh position={[0, 0.5, HALF_Z + 1.5]} castShadow>
+        <boxGeometry args={[HALF_X * 2, 1.1, 1.3]} />
+        <meshStandardMaterial color={HEDGE} roughness={1} metalness={0} />
+      </mesh>
 
       {TREES.map((tree) => (
         <Tree key={`${tree.x}:${tree.z}`} x={tree.x} z={tree.z} scale={tree.scale} />

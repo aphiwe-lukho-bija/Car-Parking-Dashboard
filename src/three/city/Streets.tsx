@@ -1,7 +1,9 @@
 import { useEffect, useMemo, type ReactElement } from "react";
 import * as THREE from "three";
-import { EA, LANE, NA, SA } from "./layout";
+import { EA, LANE, LANE_BAY, LANE_FOOT, NA, SA } from "./layout";
 import { Instances } from "./Instances";
+import { RoadSign } from "../RoadSign";
+import { GroundLabel } from "../GroundLabel";
 
 /**
  * The street surfaces: three carriageways meeting in a four-way crossing,
@@ -90,15 +92,23 @@ function Surfaces(): ReactElement {
       <Slab x0={EA.roadE} x1={SA.x1} z0={SA.paveN} z1={SA.roadN} />
       <Slab x0={SA.x0} x1={EA.roadW} z0={SA.roadS} z1={SA.paveS} />
       <Slab x0={EA.roadE} x1={SA.x1} z0={SA.roadS} z1={SA.paveS} />
-      <Slab x0={EA.paveW} x1={EA.roadW} z0={NA.paveS} z1={SA.roadN} />
+      {/* The service road's mouth, so the east pavements stop short of where
+          the rear traffic turns in. */}
+      <Slab x0={EA.paveW} x1={EA.roadW} z0={LANE.zS} z1={SA.roadN} />
       <Slab x0={EA.roadE} x1={EA.paveE} z0={NA.paveS} z1={SA.roadN} />
       <Slab x0={EA.paveW} x1={EA.roadW} z0={SA.roadS} z1={EA.z1} />
       <Slab x0={EA.roadE} x1={EA.paveE} z0={SA.roadS} z1={EA.z1} />
 
-      {/* Rear service lane, kept darker than the avenue: it is a working
-          surface, not a promenade. */}
-      <Slab x0={LANE.x0} x1={LANE.x1} z0={LANE.zN} z1={LANE.zS} y={-0.004} colour="#43474e" />
+      {/* Rear service road: a proper carriageway surfaced like the avenues,
+          with a paved footway on its south side — a narrow market bay at the
+          dead end, opening into a wide promenade behind the shops — plus
+          kerbs on both sides and a return closing off its western end. */}
+      <Slab x0={LANE.x0} x1={LANE.x1} z0={LANE.zN} z1={LANE.zS} y={-0.007} colour={ROAD} />
       <Kerb from={LANE.x0} to={LANE.x1} at={LANE.zN - 0.15} axis="x" />
+      <Kerb from={LANE.x0} to={LANE.x1} at={LANE.zS + 0.15} axis="x" />
+      <Kerb from={LANE_BAY.z1} to={LANE.zN} at={LANE.x0 + 0.15} axis="z" />
+      <Slab x0={LANE.x0} x1={LANE_BAY.x1} z0={LANE_FOOT.z0} z1={LANE_BAY.z1} />
+      <Slab x0={LANE_BAY.x1} x1={EA.paveW} z0={LANE_FOOT.z0} z1={LANE_FOOT.z1} />
 
       {/* Kerbs, broken at each junction mouth. */}
       <Kerb from={NA.x0} to={EA.roadW} at={NA.roadS + 0.15} axis="x" />
@@ -108,7 +118,9 @@ function Surfaces(): ReactElement {
       <Kerb from={EA.roadE} to={SA.x1} at={SA.roadN - 0.15} axis="x" />
       <Kerb from={SA.x0} to={EA.roadW} at={SA.roadS + 0.15} axis="x" />
       <Kerb from={EA.roadE} to={SA.x1} at={SA.roadS + 0.15} axis="x" />
-      <Kerb from={NA.paveS} to={SA.roadN} at={EA.roadW - 0.15} axis="z" />
+      {/* The lane opens into the east avenue, so that kerb starts below the
+          mouth instead of sealing it shut. */}
+      <Kerb from={LANE.zS} to={SA.roadN} at={EA.roadW - 0.15} axis="z" />
       <Kerb from={NA.paveS} to={SA.roadN} at={EA.roadE + 0.15} axis="z" />
       <Kerb from={SA.roadS} to={EA.z1} at={EA.roadW - 0.15} axis="z" />
       <Kerb from={SA.roadS} to={EA.z1} at={EA.roadE + 0.15} axis="z" />
@@ -127,6 +139,23 @@ function PavingJoints(): ReactElement {
       if (x > EA.paveW - 4 && x < EA.paveE + 4) continue;
       list.push({ x, z: (SA.paveN + SA.roadN) / 2, length: SA.roadN - SA.paveN });
       list.push({ x, z: (SA.roadS + SA.paveS) / 2, length: SA.paveS - SA.roadS });
+    }
+    // The rear service road's footway: joints across the narrow market bay,
+    // then across the wide promenade behind the shops, so neither reads as a
+    // grey sheet. The promenade's first joint lands on the seam between them.
+    for (let x = LANE.x0 + 9; x < LANE_BAY.x1 - 3; x += 9) {
+      list.push({
+        x,
+        z: (LANE_FOOT.z0 + LANE_BAY.z1) / 2,
+        length: LANE_BAY.z1 - LANE_FOOT.z0,
+      });
+    }
+    for (let x = LANE_BAY.x1; x < EA.paveW - 3; x += 9) {
+      list.push({
+        x,
+        z: (LANE_FOOT.z0 + LANE_FOOT.z1) / 2,
+        length: LANE_FOOT.z1 - LANE_FOOT.z0,
+      });
     }
     return list;
   }, []);
@@ -214,6 +243,27 @@ function Markings(): ReactElement {
     add((EA.roadW + EA.roadE) / 2, NA.roadS - 1.6, EA.roadE - EA.roadW - 1.2, 0.45, 0.005);
     add(EA.roadW - 1.6, (SA.roadN + SA.roadS) / 2, 0.45, SA.roadS - SA.roadN - 1.2, 0.005);
 
+    // The rear service road's own markings: a dashed centre line, edge lines
+    // that stop where it gives way, a dashed give-way line across its mouth
+    // and a solid bar closing off the dead end at the west.
+    for (let x = LANE.x0 + 4; x < EA.paveW; x += 8) {
+      if (x > 20.5 && x < 28.5) continue; // the crossing owns that stretch.
+      add(x, (LANE.zN + LANE.zS) / 2, 3.2, 0.16);
+    }
+    add((LANE.x0 + 28.5) / 2, LANE.zN + 0.75, 28.5 - LANE.x0, 0.14, 0.003);
+    add((LANE.x0 + 28.5) / 2, LANE.zS - 0.75, 28.5 - LANE.x0, 0.14, 0.003);
+    for (let z = LANE.zN + 0.3; z < LANE.zS - 0.4; z += 1.8) {
+      add(LANE.x1 - 0.3, z, 0.45, 1.1, 0.005);
+    }
+    add(LANE.x0 + 0.8, (LANE.zN + LANE.zS) / 2, 0.45, 4.0, 0.005);
+
+    // A crossing over the service road, near the junction mouth, so the
+    // promenade links up with the avenue pavement the way the other
+    // crossings link their pavements.
+    for (let i = 0; i < 5; i += 1) {
+      add(22 + i * 1.15, (LANE.zN + LANE.zS) / 2, 0.55, 4.2, 0.005);
+    }
+
     return list;
   }, []);
 
@@ -226,6 +276,23 @@ export function Streets(): ReactElement {
       <Surfaces />
       <PavingJoints />
       <Markings />
+
+      {/* The service road reads as the working back of the shops, so it is
+          labelled on the asphalt and signed at the junction mouth. */}
+      <GroundLabel
+        position={[4, -0.002, (LANE.zN + LANE.zS) / 2]}
+        text="SERVICE"
+        colour="#e9ebee"
+        height={0.72}
+        opacity={0.6}
+      />
+      <RoadSign
+        position={[EA.paveW + 0.7, 0, LANE.zS + 0.9]}
+        rotationY={-Math.PI / 2}
+        text="SERVICE RD"
+        width={2.2}
+        boardColour="#14261a"
+      />
     </group>
   );
 }
